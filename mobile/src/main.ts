@@ -122,6 +122,11 @@ async function iniciarSessao() {
   const sessao = data.session;
   if (!sessao) { telaLogin(); return; }
 
+  // Abre na hora com o que já está salvo no aparelho (funciona sem internet)
+  // e atualiza perfil e formulários em segundo plano.
+  const jaAbriu = !!perfil && perfil.id === sessao.user.id && formularios.length > 0;
+  if (jaAbriu && !perfil!.trocar_senha) telaInicio();
+
   if (navigator.onLine) {
     try {
       const p = await carregarPerfil(sessao);
@@ -134,7 +139,8 @@ async function iniciarSessao() {
   }
   if (!perfil) { telaLogin("Não foi possível carregar seu perfil. Verifique a internet."); return; }
   if (perfil.trocar_senha && navigator.onLine) { telaTrocarSenha(true); return; }
-  telaInicio();
+  // só redesenha se o operador ainda estiver na tela inicial
+  if (!jaAbriu || document.querySelector(".lista-forms")) telaInicio();
   enviarFila();
 }
 
