@@ -24,7 +24,8 @@ const CFG = {
     { id: "1zqpc_Q2D1EybHLWzJvL83M_hJU9WmqZgkR_93v3gZN8",                   // Central Produção
       abas: { "Registro_Placas_Danificadas": "Registro_Placas_Danificadas",
               "Registro_Placas_Manutencao":  "Registro_Placas_Manutencao",
-              "Registro_Geral_Streamax":     "Registro_Geral_Streamax" } },
+              "Registro_Geral_Streamax":     "Registro_Geral_Streamax",
+              "Menutencoes_Streamax":        "Menutencoes_Streamax" } },
     { id: "12mansudeO4kq-5Ua9h89U3yg47jelhWugMLFjvjaOG8",                   // Manutenção RST_Mini
       abas: { "Respostas ao formulário 1": "RST_Mini" } },
     { id: "1oBx7p9IitwkEHD6JFpnpsdDwgm2l4sNfqGY73XvMSWs",                   // Controle Streamax (Insumos)
