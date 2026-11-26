@@ -30,6 +30,8 @@ jobs:
           java-version: 21
 
       - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Instalar dependências
         run: npm ci
