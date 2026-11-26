@@ -43,14 +43,20 @@ jobs:
         working-directory: mobile/android
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_SENHA: ${{ secrets.ANDROID_KEYSTORE_SENHA }}
+          KEYSTORE_SENHA_BRUTA: ${{ secrets.ANDROID_KEYSTORE_SENHA }}
         run: |
+          KEYSTORE_SENHA=$(printf "%s" "$KEYSTORE_SENHA_BRUTA" | tr -d " \r\n\t")
           if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_SENHA" ]; then
             echo "::error::Cadastre os segredos ANDROID_KEYSTORE_BASE64 e ANDROID_KEYSTORE_SENHA em Settings > Secrets and variables > Actions."
             exit 1
           fi
           mkdir -p keystore
-          echo "$KEYSTORE_B64" | base64 -d > keystore/central-producao.jks
+          LIMPO=$(printf "%s" "$KEYSTORE_B64" | tr -d " \r\n\t")
+          echo "Tamanho do segredo ANDROID_KEYSTORE_BASE64: ${#LIMPO} caracteres (esperado: 3576)"
+          if ! printf "%s" "$LIMPO" | base64 -d > keystore/central-producao.jks; then
+            echo "::error::O segredo ANDROID_KEYSTORE_BASE64 não é um base64 válido. Cole de novo todo o conteúdo do arquivo ANDROID_KEYSTORE_BASE64.txt, sem nada a mais."
+            exit 1
+          fi
           {
             echo "storeFile=../keystore/central-producao.jks"
             echo "storePassword=$KEYSTORE_SENHA"
