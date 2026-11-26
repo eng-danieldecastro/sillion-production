@@ -1,0 +1,22 @@
+{
+  "name": "central-producao-sillion-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "android:sync": "npm run build && npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "7.4.4",
+    "@capacitor/core": "7.4.4",
+    "@supabase/supabase-js": "2.119.2"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "3.0.5",
+    "@capacitor/cli": "7.4.4",
+    "typescript": "5.9.3",
+    "vite": "7.1.12"
+  }
+}
