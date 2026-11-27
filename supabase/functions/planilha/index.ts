@@ -5,8 +5,10 @@
 //  - backup:    guarda as linhas da planilha sem duplicar (uma linha por hash)
 //  - pulso:     mantém o projeto ativo
 //  - externo:   guarda o resumo de câmeras e fornecedores usado no dashboard do app
+//  - cameras_xlsx: recebe o arquivo .xlsx da planilha RMA (câmeras) e guarda o resumo
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.119.2";
+import { resumoCameras } from "./cameras.ts";
 
 function resposta(corpo: unknown, status = 200) {
   return new Response(JSON.stringify(corpo), {
@@ -140,6 +142,25 @@ Deno.serve(async (req) => {
       .upsert({ chave, dados: corpo.dados, atualizado_em: new Date().toISOString() });
     if (error) return resposta({ erro: error.message }, 500);
     return resposta({ ok: true, chave });
+  }
+
+  if (acao === "cameras_xlsx") {
+    // corpo: { arquivo_b64: "<conteúdo do .xlsx em base64>" }
+    const b64 = String(corpo.arquivo_b64 || "");
+    if (!b64 || b64.length > 8_000_000) return resposta({ erro: "arquivo ausente ou grande demais" }, 400);
+    let dados;
+    try {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      dados = resumoCameras(bytes);
+    } catch (e) {
+      return resposta({ erro: "não foi possível ler o arquivo de câmeras: " + String(e) }, 400);
+    }
+    const { error } = await servico.from("painel_externo")
+      .upsert({ chave: "cameras", dados, atualizado_em: new Date().toISOString() });
+    if (error) return resposta({ erro: error.message }, 500);
+    return resposta({ ok: true, solucionadas: dados.solucionadas, a_reparar: dados.a_reparar, reparos_total: dados.reparos_total });
   }
 
   return resposta({ erro: "Ação desconhecida" }, 400);

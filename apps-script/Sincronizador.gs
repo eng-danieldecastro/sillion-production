@@ -48,7 +48,7 @@ const CFG = {
   ABAS_ENVIADOS_FORNECEDOR: ["Base_Envios", "Enviados", "Enviado", "Enviados_Fornecedor", "Envios", "Enviados ao Fornecedor"],
   ABAS_RECEBIDOS_FORNECEDOR: ["Base_Recebimentos", "Recebidos", "Recebido", "Recebidos_Fornecedor", "Retornos", "Retornados"],
   PRAZO_DIAS_FORNECEDOR: 15,
-  ID_ARQUIVO_CAMERAS: "1IJVUvqjeE1DeMXJ75ud7b_l8BBMgTn0Q",   // .xlsx no Drive: lido por uma cópia temporária, apagada em seguida
+  ID_ARQUIVO_CAMERAS: "1IJVUvqjeE1DeMXJ75ud7b_l8BBMgTn0Q",   // .xlsx no Drive: só leitura
   ABAS_CAMERAS_A_REPARAR: ["A reparar", "A Reparar"],
   ABAS_CAMERAS_REPARADAS: ["Reparados", "Reparadas", "Reparado"],
   ABAS_CAMERAS_AGUARDANDO: ["Aguardando peças", "Aguardando pecas", "Aguardando peça"],
@@ -238,10 +238,7 @@ function resumoExterno(forcarCameras) {
   try {
     chamar_({ acao: "externo", chave: "fornecedores", dados: resumoFornecedores_() });
   } catch (e) { console.error("resumo fornecedores: " + e); }
-  try {
-    const c = resumoCameras_(forcarCameras === true);
-    if (c) chamar_({ acao: "externo", chave: "cameras", dados: c });
-  } catch (e) { console.error("resumo câmeras: " + e); }
+  try { resumoCameras_(forcarCameras === true); } catch (e) { console.error("resumo câmeras: " + e); }
 }
 
 function resumoFornecedores_() {
@@ -261,104 +258,16 @@ function resumoFornecedores_() {
   };
 }
 
+// O arquivo de câmeras é um .xlsx: o script só LÊ o arquivo (permissão de leitura do Drive)
+// e envia o conteúdo ao Supabase, que calcula o resumo com as mesmas regras do dashboard.
 function resumoCameras_(forcar) {
   const props = PropertiesService.getScriptProperties();
   const arq = DriveApp.getFileById(CFG.ID_ARQUIVO_CAMERAS);
   const marca = String(arq.getLastUpdated().getTime());
-  if (!forcar && props.getProperty("CAMERAS_VERSAO") === marca) return null;   // arquivo não mudou desde a última leitura
-
-  let idLeitura = CFG.ID_ARQUIVO_CAMERAS, temporario = "";
-  if (arq.getMimeType() !== MimeType.GOOGLE_SHEETS) { temporario = copiaComoPlanilha_(CFG.ID_ARQUIVO_CAMERAS); idLeitura = temporario; }
-  try {
-    const ss = SpreadsheetApp.openById(idLeitura);
-    const tz = ss.getSpreadsheetTimeZone();
-    const abaA = acharAbaPorNomes_(ss, CFG.ABAS_CAMERAS_A_REPARAR, ["REPARAR"]);
-    const abaR = acharAbaPorNomes_(ss, CFG.ABAS_CAMERAS_REPARADAS, ["REPARAD"]);
-    const abaG = acharAbaPorNomes_(ss, CFG.ABAS_CAMERAS_AGUARDANDO, ["AGUARD"]);
-    const la = lerAbaCamerasResumo_(abaA, "A REPARAR", tz);
-    const lg = lerAbaCamerasResumo_(abaG, "AGUARDANDO PEÇAS", tz);
-    const lr = lerAbaCamerasResumo_(abaR, "REPARADA", tz);
-    // mesma câmera em mais de uma aba: vale a situação mais avançada
-    const peso = { "A REPARAR": 1, "AGUARDANDO PEÇAS": 2, "REPARADA": 3 };
-    const porChave = {}, semChave = [];
-    la.concat(lg, lr).forEach(function (l) {
-      const k = chaveCamera_(l);
-      if (!k) { semChave.push(l); return; }
-      if (!porChave[k] || peso[l.situacao] >= peso[porChave[k].situacao]) porChave[k] = l;
-    });
-    const itens = Object.keys(porChave).map(function (k) { return porChave[k]; }).concat(semChave);
-    const conta = function (s) { return itens.filter(function (i) { return i.situacao === s; }).length; };
-    // cada linha da aba Reparados é um reparo; agrupado pelo dia do reparo
-    const porDia = {};
-    lr.forEach(function (l) { if (l.dia) porDia[l.dia] = (porDia[l.dia] || 0) + 1; });
-    props.setProperty("CAMERAS_VERSAO", marca);
-    return {
-      solucionadas: conta("REPARADA"),
-      a_reparar: conta("A REPARAR"),
-      aguardando_pecas: conta("AGUARDANDO PEÇAS"),
-      total: itens.length,
-      reparos_total: lr.length,
-      reparos_por_dia: porDia
-    };
-  } finally {
-    if (temporario) apagarArquivo_(temporario);
-  }
-}
-
-// Converte o .xlsx numa planilha Google temporária (o original não é alterado)
-function copiaComoPlanilha_(id) {
-  const resp = UrlFetchApp.fetch("https://www.googleapis.com/drive/v3/files/" + id + "/copy?supportsAllDrives=true&fields=id", {
-    method: "post", contentType: "application/json", muteHttpExceptions: true,
-    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
-    payload: JSON.stringify({ name: "temporario-painel-cameras (pode apagar)", mimeType: "application/vnd.google-apps.spreadsheet" })
-  });
-  if (resp.getResponseCode() >= 300) throw new Error("Não foi possível converter o arquivo de câmeras: " + resp.getContentText());
-  return JSON.parse(resp.getContentText()).id;
-}
-function apagarArquivo_(id) {
-  const resp = UrlFetchApp.fetch("https://www.googleapis.com/drive/v3/files/" + id + "?supportsAllDrives=true", {
-    method: "delete", muteHttpExceptions: true, headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }
-  });
-  if (resp.getResponseCode() >= 300) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e) { console.error("temporário não apagado: " + id); } }
-}
-
-function lerAbaCamerasResumo_(sheet, situacao, tz) {
-  const out = [];
-  if (!sheet) return out;
-  const ultLin = sheet.getLastRow(), ultCol = sheet.getLastColumn();
-  if (ultLin < 2 || ultCol < 1) return out;
-  const valores = sheet.getRange(1, 1, ultLin, ultCol).getValues();
-  let hIdx = -1;   // cabeçalho: a primeira das 8 primeiras linhas com "MODEL" e "MAC"
-  for (let r = 0; r < Math.min(8, valores.length); r++) {
-    const hs = valores[r].map(norm_);
-    if (acharCol_(hs, ["MODEL", "MODELO"]) >= 0 && acharCol_(hs, ["MAC", "MAC ADDRESS"]) >= 0) { hIdx = r; break; }
-  }
-  if (hIdx < 0) return out;
-  const cab = valores[hIdx].map(norm_);
-  const col = {
-    modelo: acharCol_(cab, ["MODEL", "MODELO"]),
-    sn: acharCol_(cab, ["SN", "S N", "SERIAL", "SERIAL NUMBER"]),
-    mac: acharCol_(cab, ["MAC ADDRESS", "MAC"]),
-    data: acharColDataReparo_(cab, valores, hIdx)
-  };
-  const cel = function (row, i) { return i < 0 ? "" : (row[i] instanceof Date ? Utilities.formatDate(row[i], tz, "dd/MM/yyyy") : texto_(row[i])); };
-  const agora = Date.now();
-  const minIso = Utilities.formatDate(new Date(agora - 400 * 86400000), tz, "yyyy-MM-dd");
-  const maxIso = Utilities.formatDate(new Date(agora + 2 * 86400000), tz, "yyyy-MM-dd");
-  for (let r = hIdx + 1; r < valores.length; r++) {
-    const row = valores[r];
-    const modelo = cel(row, col.modelo), sn = cel(row, col.sn), mac = cel(row, col.mac);
-    if (!modelo && !sn && !mac) continue;
-    const macLimpo = mac.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
-    const macValido = /^[0-9A-F]{12}$/.test(macLimpo);
-    const dt = col.data >= 0 ? dataDaCelulaEstrita_(row[col.data], tz) : { estado: "vazio", iso: "" };
-    out.push({
-      situacao: situacao, modelo: modelo, familia: familiaCamera_(modelo), sn: sn,
-      mac: macValido ? macLimpo : "", macValido: macValido,
-      dia: dt.estado === "ok" && dt.iso >= minIso && dt.iso <= maxIso ? dt.iso : ""
-    });
-  }
-  return out;
+  if (!forcar && props.getProperty("CAMERAS_VERSAO") === marca) return;   // arquivo não mudou desde a última leitura
+  const r = chamar_({ acao: "cameras_xlsx", arquivo_b64: Utilities.base64Encode(arq.getBlob().getBytes()) });
+  props.setProperty("CAMERAS_VERSAO", marca);
+  Logger.log("Câmeras: " + r.solucionadas + " solucionadas, " + r.a_reparar + " a reparar, " + r.reparos_total + " reparos");
 }
 
 /* ---- Funções copiadas do dashboard (mesmas regras) ---- */
@@ -734,67 +643,3 @@ function itensFornecedores_() {
     }
   };
 }
-
-function familiaCamera_(modelo) {
-  const n = norm_(modelo);
-  if (!n) return "(sem modelo)";
-  if (n.indexOf("KIT") >= 0) return "ADKit";
-  if (n.indexOf("AD+") >= 0 || /AD\s*PLUS/.test(n) || /^AD\b/.test(n)) return "AD+";
-  return texto_(modelo);
-}
-
-/* ---- DATA DO REPARO (aba Reparados) ----
- * Na aba Reparados a única data preenchida é "Date Received At Streamax" (coluna M); "Date Sent to Streamax" (coluna F) fica vazia.
- * Por isso a coluna é escolhida pelo cabeçalho E pelo conteúdo: entre as colunas de data, vale a de melhor prioridade que TEM datas preenchidas.
- * Prioridade: data de reparo > data de retorno/entrega > data de recebimento (Date Received) > outra data > data de envio (Date Sent).
- * A coluna escolhida aparece em "Colunas usadas" (conferência) no menu de câmeras. */
-function prioridadeColData_(h) {
-  const ehData = /(^|[^A-Z0-9])(DATE|DATA)([^A-Z0-9]|$)/.test(h);
-  if (!ehData) return -1;
-  if (/REPAIR|REPAR/.test(h)) return 0;
-  if (/RETURN|RETORN|DELIVER|ENTREGA/.test(h)) return 1;
-  if (/RECEIVED|RECEB|RECEIPT|ARRIV/.test(h)) return 2;
-  if (/SENT|SEND|ENVI|SHIP/.test(h)) return 4;
-  return 3;
-}
-function acharColDataReparo_(cab, valores, hIdx) {
-  let melhor = -1, melhorPrio = 99, primeiraSemDados = -1, primeiraSemDadosPrio = 99;
-  for (let i = 0; i < cab.length; i++) {
-    const pr = prioridadeColData_(cab[i]);
-    if (pr < 0) continue;
-    let preenchidas = 0;
-    for (let r = hIdx + 1; r < valores.length; r++) {
-      const v = valores[r][i];
-      if (v instanceof Date || (v !== null && v !== undefined && String(v).trim() !== "")) { preenchidas++; break; }
-    }
-    if (preenchidas > 0) { if (pr < melhorPrio) { melhor = i; melhorPrio = pr; } }
-    else if (pr < primeiraSemDadosPrio) { primeiraSemDados = i; primeiraSemDadosPrio = pr; }
-  }
-  return melhor >= 0 ? melhor : primeiraSemDados;
-}
-/* Lê a data de uma célula com validação rígida: dd/mm/aaaa (ou - .), aaaa-mm-dd, com hora opcional. Mês 1–12 e dia existente no mês;
- * "27/20/2026" NÃO vira outra data (o JavaScript viraria 27/08/2027). estado: "vazio" | "ok" | "invalida". */
-function dataDaCelulaEstrita_(v, tz) {
-  if (v instanceof Date) return isNaN(v.getTime()) ? { estado: "invalida", iso: "", bruto: "" } : { estado: "ok", iso: Utilities.formatDate(v, tz, "yyyy-MM-dd"), bruto: Utilities.formatDate(v, tz, "dd/MM/yyyy") };
-  const t = (v === null || v === undefined) ? "" : String(v).trim();
-  if (!t) return { estado: "vazio", iso: "", bruto: "" };
-  let d, m, a;
-  let x = t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4}|\d{2})(?:[ T,]+\d{1,2}:\d{2}(?::\d{2})?)?$/);
-  if (x) { d = +x[1]; m = +x[2]; a = +x[3]; if (x[3].length === 2) a += 2000; }
-  else {
-    x = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T]+\d{1,2}:\d{2}(?::\d{2})?)?$/);
-    if (!x) return { estado: "invalida", iso: "", bruto: t };
-    a = +x[1]; m = +x[2]; d = +x[3];
-  }
-  const diasNoMes = new Date(a, m, 0).getDate();   // m = 1..12 -> último dia do mês
-  if (m < 1 || m > 12 || d < 1 || d > diasNoMes) return { estado: "invalida", iso: "", bruto: t };
-  const p2 = function (n) { return (n < 10 ? "0" : "") + n; };
-  return { estado: "ok", iso: a + "-" + p2(m) + "-" + p2(d), bruto: t };
-}
-/* Chave que identifica a câmera: o SN; se o SN estiver vazio ou repetir o nome do modelo (ex.: "AD_KIT" digitado na coluna SN), o MAC válido. */
-function chaveCamera_(l) {
-  const snk = chaveEquip_(l.sn);
-  const snOk = snk && snk !== chaveEquip_(l.modelo) && snk !== chaveEquip_(l.familia);
-  return (snOk ? snk : "") || (l.macValido ? chaveEquip_(l.mac) : "");
-}
-
