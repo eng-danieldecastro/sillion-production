@@ -3,6 +3,8 @@ import { createClient, type Session } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_CHAVE_PUBLICA, DOMINIO_LOGIN, VERSAO_APP } from "./config";
 import type { Campo, Formulario, Perfil, RespostaPendente } from "./tipos";
 import { telaPainel, limparCachePainel } from "./painel";
+import { App } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 
 /* ------------------------------------------------------------------ */
 /* Estado                                                              */
@@ -26,8 +28,9 @@ const PRODUTOS: Record<Produto, { nome: string; codigo: string; descricao: strin
   std: { nome: "STD", codigo: "PRD-01", descricao: "Placas, manutenção e RST_Mini", slugs: ["placas_danificadas", "manutencao_placas", "rst_mini"] },
   streamax: { nome: "Streamax", codigo: "PRD-02", descricao: "Equipamentos e entrada", slugs: ["streamax_geral", "insumos"] },
 };
-// Para onde o botão ‹ do topo leva na tela atual.
-let voltarPara: () => void = () => telaInicio();
+// Para onde o botão ‹ do topo (e o botão voltar do celular) leva na tela atual.
+// null = tela raiz (login ou menu principal): o voltar do celular minimiza o app.
+let voltarPara: (() => void) | null = null;
 
 const app = document.getElementById("app")!;
 
@@ -67,6 +70,7 @@ const LOGO = `<img class="logo" src="./logo.png" alt="Sillion" />`;
 /* Login                                                               */
 /* ------------------------------------------------------------------ */
 function telaLogin(mensagem = "") {
+  voltarPara = null;
   app.innerHTML = `
     <main class="tela-login">
       <div class="login-topo">${LOGO}<p class="login-nome">Central de Produção</p></div>
@@ -172,7 +176,7 @@ async function sair(forcado = false, mensagem = "") {
 /* Troca de senha                                                      */
 /* ------------------------------------------------------------------ */
 function telaTrocarSenha(obrigatoria: boolean) {
-  voltarPara = () => telaConfiguracoes();
+  voltarPara = obrigatoria ? null : () => telaConfiguracoes();
   app.innerHTML = `
     ${cabecalho(obrigatoria ? "" : "voltar")}
     <main class="conteudo">
@@ -232,7 +236,7 @@ function cabecalho(acao: "" | "voltar" | "inicio") {
     </header>`;
 }
 function ligarCabecalho() {
-  const v = document.getElementById("btn-voltar"); if (v) v.onclick = () => voltarPara();
+  const v = document.getElementById("btn-voltar"); if (v) v.onclick = () => voltarPara?.();
   const c = document.getElementById("btn-config"); if (c) c.onclick = () => telaConfiguracoes();
 }
 
@@ -300,7 +304,7 @@ function formsSemProduto() {
 }
 
 function telaInicio() {
-  voltarPara = () => telaInicio();
+  voltarPara = null;
   const online = navigator.onLine;
   const extra = formsSemProduto();
   const blocoProduto = (p: Produto) => {
@@ -437,7 +441,12 @@ function produtoDe(slug: string): Produto | null {
 function telaFormulario(f: Formulario, voltar?: () => void) {
   const prod = produtoDe(f.slug);
   const destino = voltar || (prod ? () => telaProduto(prod) : () => telaInicio());
-  voltarPara = destino;
+  // Ao sair de um formulário já começado, confirma antes de descartar o que foi preenchido.
+  let alterado = false;
+  voltarPara = () => {
+    if (alterado && !confirm("Sair sem enviar? O que foi preenchido neste formulário será perdido.")) return;
+    destino();
+  };
   app.innerHTML = `
     ${cabecalho("voltar")}
     <main class="conteudo">
@@ -468,7 +477,9 @@ function telaFormulario(f: Formulario, voltar?: () => void) {
       });
     };
   });
+  form.addEventListener("input", () => { alterado = true; });
   form.addEventListener("change", (ev) => {
+    alterado = true;
     const bloco = (ev.target as HTMLElement).closest(".campo"); if (bloco) bloco.classList.remove("invalido");
   });
 
@@ -558,6 +569,14 @@ async function enviarFila(manual = false) {
   const faixa = document.getElementById("faixa-fila");
   if (faixa) faixa.outerHTML = resumoFila() || "";
   const be = document.getElementById("btn-enviar"); if (be) be.onclick = () => enviarFila(true);
+}
+
+// Botão voltar do celular (Android): navega dentro do app, igual ao ‹ do topo.
+if (Capacitor.isNativePlatform()) {
+  App.addListener("backButton", () => {
+    if (voltarPara) voltarPara();
+    else App.minimizeApp();
+  });
 }
 
 window.addEventListener("online", () => enviarFila());

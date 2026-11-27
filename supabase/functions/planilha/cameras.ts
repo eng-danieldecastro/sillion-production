@@ -5,8 +5,8 @@
 // deno-lint-ignore-file no-explicit-any
 import * as XLSX from "npm:xlsx@0.18.5";
 
-const norm = (s: unknown) => String(s ?? "").replace(/ /g, " ").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toUpperCase();
-const texto = (s: unknown) => String(s ?? "").replace(/ /g, " ").trim();
+const norm = (s: unknown) => String(s ?? "").replace(/\u00a0/g, " ").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
+const texto = (s: unknown) => String(s ?? "").replace(/\u00a0/g, " ").trim();
 const chaveEquip = (s: unknown) => String(s ?? "").normalize("NFKC").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 function acharCol(headers: string[], termos: string[]) {
@@ -119,7 +119,10 @@ export function resumoCameras(bytes: Uint8Array) {
     const atual = porChave.get(k);
     if (!atual || peso[l.situacao] >= peso[atual.situacao]) porChave.set(k, l);
   }
-  const itens = [...porChave.values(), ...semChave];
+  // Regra de Dan (2026-11-27): toda câmera AD+ (ADPLUS) que ainda não foi reparada está
+  // aguardando peça, mesmo que esteja na aba "A reparar".
+  const itens = [...porChave.values(), ...semChave].map((l) =>
+    l.situacao === "A REPARAR" && l.familia === "AD+" ? { ...l, situacao: "AGUARDANDO PEÇAS" } : l);
   const conta = (s: string) => itens.filter((i) => i.situacao === s).length;
   const porDia: Record<string, number> = {};
   for (const l of lr) if (l.dia) porDia[l.dia] = (porDia[l.dia] || 0) + 1;
