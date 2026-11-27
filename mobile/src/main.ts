@@ -20,7 +20,14 @@ const CHAVE_PERFIL = "cps-perfil";
 let perfil: Perfil | null = lerJSON<Perfil>(CHAVE_PERFIL);
 let formularios: Formulario[] = lerJSON<Formulario[]>(CHAVE_FORMS) || [];
 let enviando = false;
-let abaInicio: "forms" | "painel" = "forms";
+// Produto escolhido no menu principal. Cada formulário pertence a um produto.
+type Produto = "std" | "streamax";
+const PRODUTOS: Record<Produto, { nome: string; codigo: string; descricao: string; slugs: string[] }> = {
+  std: { nome: "STD", codigo: "PRD-01", descricao: "Placas, manutenção e RST_Mini", slugs: ["placas_danificadas", "manutencao_placas", "rst_mini"] },
+  streamax: { nome: "Streamax", codigo: "PRD-02", descricao: "Equipamentos e entrada", slugs: ["streamax_geral", "insumos"] },
+};
+// Para onde o botão ‹ do topo leva na tela atual.
+let voltarPara: () => void = () => telaInicio();
 
 const app = document.getElementById("app")!;
 
@@ -142,7 +149,7 @@ async function iniciarSessao() {
   if (!perfil) { telaLogin("Não foi possível carregar seu perfil. Verifique a internet."); return; }
   if (perfil.trocar_senha && navigator.onLine) { telaTrocarSenha(true); return; }
   // só redesenha se o operador ainda estiver na tela inicial
-  if (!jaAbriu || document.querySelector(".lista-forms")) telaInicio();
+  if (!jaAbriu || document.querySelector(".tela-inicio")) telaInicio();
   enviarFila();
 }
 
@@ -154,7 +161,6 @@ async function sair(forcado = false, mensagem = "") {
   try { await sb.auth.signOut({ scope: "local" }); } catch { /* ignora */ }
   localStorage.removeItem(CHAVE_PERFIL);
   limparCachePainel();
-  abaInicio = "forms";
   // Saída voluntária (já confirmada) limpa a fila. Saída forçada (sessão expirada)
   // mantém as respostas no aparelho para enviar quando o mesmo usuário entrar de novo.
   if (!forcado) salvarFila([]);
@@ -166,6 +172,7 @@ async function sair(forcado = false, mensagem = "") {
 /* Troca de senha                                                      */
 /* ------------------------------------------------------------------ */
 function telaTrocarSenha(obrigatoria: boolean) {
+  voltarPara = () => telaConfiguracoes();
   app.innerHTML = `
     ${cabecalho(obrigatoria ? "" : "voltar")}
     <main class="conteudo">
@@ -197,43 +204,81 @@ function telaTrocarSenha(obrigatoria: boolean) {
     await sb.rpc("marcar_senha_trocada");
     if (perfil) { perfil.trocar_senha = false; gravarJSON(CHAVE_PERFIL, perfil); }
     aviso("Senha alterada.");
-    telaInicio();
+    if (obrigatoria) telaInicio(); else telaConfiguracoes();
   };
 }
 
 /* ------------------------------------------------------------------ */
 /* Início                                                              */
 /* ------------------------------------------------------------------ */
-function cabecalho(acao: "" | "voltar" | "menu") {
+const ICONE_ENGRENAGEM = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`;
+
+function cabecalho(acao: "" | "voltar" | "inicio") {
+  if (acao === "inicio") {
+    return `
+    <header class="topo topo-inicio">
+      <div class="topo-marca">
+        ${LOGO}
+        <div class="topo-nome"><strong>Central de Produção</strong><span>REGISTRO DE PRODUÇÃO</span></div>
+      </div>
+      <button class="topo-btn" id="btn-config" aria-label="Configurações">${ICONE_ENGRENAGEM}</button>
+    </header>`;
+  }
   return `
     <header class="topo">
       ${acao === "voltar" ? `<button class="topo-btn" id="btn-voltar" aria-label="Voltar">‹</button>` : `<span class="topo-espaco"></span>`}
       ${LOGO}
-      ${acao === "menu" ? `<button class="topo-btn" id="btn-menu" aria-label="Menu">⋯</button>` : `<span class="topo-espaco"></span>`}
+      <span class="topo-espaco"></span>
     </header>`;
 }
 function ligarCabecalho() {
-  const v = document.getElementById("btn-voltar"); if (v) v.onclick = () => telaInicio();
-  const m = document.getElementById("btn-menu"); if (m) m.onclick = abrirMenu;
+  const v = document.getElementById("btn-voltar"); if (v) v.onclick = () => voltarPara();
+  const c = document.getElementById("btn-config"); if (c) c.onclick = () => telaConfiguracoes();
 }
 
-function abrirMenu() {
-  const fundo = document.createElement("div");
-  fundo.className = "menu-fundo";
-  fundo.innerHTML = `
-    <div class="menu">
-      <p class="menu-quem"><strong>${esc(perfil?.nome)}</strong><br/><span>${esc(perfil?.usuario)}</span></p>
-      <button data-a="senha">Trocar senha</button>
-      <button data-a="sair" class="perigo">Sair</button>
-      <button data-a="fechar">Fechar</button>
-    </div>`;
-  document.body.appendChild(fundo);
-  fundo.onclick = (ev) => {
-    const a = (ev.target as HTMLElement).dataset.a;
-    if (ev.target === fundo || a === "fechar") fundo.remove();
-    if (a === "senha") { fundo.remove(); if (!navigator.onLine) aviso("Precisa de internet para trocar a senha.", "erro"); else telaTrocarSenha(false); }
-    if (a === "sair") { fundo.remove(); sair(); }
+/* ------------------------------------------------------------------ */
+/* Configurações                                                       */
+/* ------------------------------------------------------------------ */
+function telaConfiguracoes() {
+  voltarPara = () => telaInicio();
+  const pend = fila().length;
+  app.innerHTML = `
+    ${cabecalho("voltar")}
+    <main class="conteudo">
+      <header class="tela-cab">
+        <p class="rotulo-tec">SYS / CONFIG</p>
+        <h1>Configurações</h1>
+      </header>
+      <section class="cfg-grupo">
+        <h2 class="rotulo-tec">Conta</h2>
+        <div class="cfg-lista">
+          <p class="cfg-linha"><span>Nome</span><strong>${esc(perfil?.nome)}</strong></p>
+          <p class="cfg-linha"><span>Usuário</span><strong class="mono">${esc(perfil?.usuario)}</strong></p>
+          <p class="cfg-linha"><span>Acesso</span><strong class="mono">${perfil?.papel === "admin" ? "ADMIN" : "OPERADOR"}</strong></p>
+        </div>
+      </section>
+      <section class="cfg-grupo">
+        <h2 class="rotulo-tec">Segurança</h2>
+        <div class="cfg-lista">
+          <button class="cfg-linha cfg-acao" id="cfg-senha"><span>Trocar senha</span><b>›</b></button>
+        </div>
+      </section>
+      <section class="cfg-grupo">
+        <h2 class="rotulo-tec">Aplicativo</h2>
+        <div class="cfg-lista">
+          <p class="cfg-linha"><span>Versão</span><strong class="mono">${esc(VERSAO_APP)}</strong></p>
+          <p class="cfg-linha"><span>Conexão</span><strong class="mono">${navigator.onLine ? "ONLINE" : "OFFLINE"}</strong></p>
+          <p class="cfg-linha"><span>Respostas na fila</span><strong class="mono">${pend}</strong></p>
+        </div>
+      </section>
+      <button class="btn btn-secundario btn-sair" id="cfg-sair">Sair da conta</button>
+    </main>`;
+  ligarCabecalho();
+  window.scrollTo(0, 0);
+  document.getElementById("cfg-senha")!.onclick = () => {
+    if (!navigator.onLine) aviso("Precisa de internet para trocar a senha.", "erro"); else telaTrocarSenha(false);
   };
+  document.getElementById("cfg-sair")!.onclick = () => sair();
 }
 
 function resumoFila() {
@@ -244,64 +289,99 @@ function resumoFila() {
     <button class="btn-link" id="btn-enviar">Enviar agora</button></div>`;
 }
 
+function formsDoProduto(p: Produto) {
+  const slugs = PRODUTOS[p].slugs;
+  return formularios.filter((f) => slugs.includes(f.slug)).sort((a, b) => a.ordem - b.ordem);
+}
+// Formulário novo, ainda sem produto definido: aparece em uma lista à parte.
+function formsSemProduto() {
+  const todos = Object.values(PRODUTOS).flatMap((p) => p.slugs);
+  return formularios.filter((f) => !todos.includes(f.slug)).sort((a, b) => a.ordem - b.ordem);
+}
+
 function telaInicio() {
-  const lista = [...formularios].sort((a, b) => a.ordem - b.ordem);
-  const abas = `
-      <nav class="abas-inicio" role="tablist">
-        <button role="tab" data-aba="forms" class="${abaInicio === "forms" ? "ativo" : ""}">Formulários</button>
-        <button role="tab" data-aba="painel" class="${abaInicio === "painel" ? "ativo" : ""}">Painel</button>
-      </nav>`;
-  if (abaInicio === "painel") {
-    app.innerHTML = `
-    ${cabecalho("menu")}
-    <main class="conteudo">
-      <section class="saudacao">
-        <p class="sub">Olá, ${esc(primeiroNome(perfil?.nome || ""))}</p>
-        <h1>Painel da produção</h1>
-      </section>
-      ${abas}
-      ${resumoFila()}
-      <div id="painel"></div>
-    </main>`;
-    ligarCabecalho();
-    ligarAbas();
-    telaPainel(document.getElementById("painel")!, sb);
-    const be = document.getElementById("btn-enviar"); if (be) be.onclick = () => enviarFila(true);
-    return;
-  }
+  voltarPara = () => telaInicio();
+  const online = navigator.onLine;
+  const extra = formsSemProduto();
+  const blocoProduto = (p: Produto) => {
+    const info = PRODUTOS[p], n = formsDoProduto(p).length;
+    return `
+      <button class="produto produto-${p}" data-produto="${p}">
+        <span class="pr-codigo mono">${info.codigo}</span>
+        <span class="pr-nome">${esc(info.nome)}</span>
+        <span class="pr-desc">${esc(info.descricao)}</span>
+        <span class="pr-rodape mono"><span>${n} FORMULÁRIO${n === 1 ? "" : "S"}</span><b>›</b></span>
+      </button>`;
+  };
   app.innerHTML = `
-    ${cabecalho("menu")}
-    <main class="conteudo">
+    ${cabecalho("inicio")}
+    <div class="faixa-status mono">
+      <span><i class="led ${online ? "on" : "off"}"></i>${online ? "ONLINE" : "OFFLINE"}</span>
+      <span>OP: ${esc((perfil?.usuario || "").toUpperCase())}</span>
+      <span>${esc(VERSAO_APP)}</span>
+    </div>
+    <main class="conteudo tela-inicio">
       <section class="saudacao">
         <p class="sub">Olá, ${esc(primeiroNome(perfil?.nome || ""))}</p>
-        <h1>Qual formulário você vai responder?</h1>
       </section>
-      ${abas}
       ${resumoFila()}
-      <section class="lista-forms">
-        ${lista.length ? lista.map((f) => `
-          <button class="cartao cartao-form" data-slug="${esc(f.slug)}">
-            <span class="cf-titulo">${esc(f.titulo)}</span>
-            <span class="cf-seta">›</span>
-          </button>`).join("") : `<p class="vazio">Nenhum formulário disponível. Conecte-se à internet e abra o app de novo.</p>`}
+      <section class="secao-tec">
+        <h2 class="rotulo-tec"><span class="mono">01</span> Selecione o produto</h2>
+        ${formularios.length ? `<div class="produtos">${blocoProduto("std")}${blocoProduto("streamax")}</div>` : `<p class="vazio">Nenhum formulário disponível. Conecte-se à internet e abra o app de novo.</p>`}
+        ${extra.length ? `<div class="lista-forms lista-extra">${extra.map((f) => htmlItemForm(f)).join("")}</div>` : ""}
+      </section>
+      <section class="secao-tec">
+        <h2 class="rotulo-tec"><span class="mono">02</span> Painel da produção</h2>
+        <div id="painel"></div>
       </section>
     </main>`;
   ligarCabecalho();
-  ligarAbas();
-  app.querySelectorAll<HTMLButtonElement>(".cartao-form").forEach((b) => {
-    b.onclick = () => { const f = formularios.find((x) => x.slug === b.dataset.slug); if (f) telaFormulario(f); };
+  app.querySelectorAll<HTMLButtonElement>(".produto").forEach((b) => {
+    b.onclick = () => telaProduto(b.dataset.produto as Produto);
   });
+  ligarItensForm();
+  telaPainel(document.getElementById("painel")!, sb);
   const be = document.getElementById("btn-enviar"); if (be) be.onclick = () => enviarFila(true);
 }
 
-function ligarAbas() {
-  app.querySelectorAll<HTMLButtonElement>(".abas-inicio button").forEach((b) => {
-    b.onclick = () => {
-      const nova = b.dataset.aba as "forms" | "painel";
-      if (nova === abaInicio) return;
-      abaInicio = nova; telaInicio(); window.scrollTo(0, 0);
-    };
+function htmlItemForm(f: Formulario, n?: number) {
+  return `
+    <button class="cartao cartao-form" data-slug="${esc(f.slug)}">
+      ${n ? `<span class="cf-num mono">${String(n).padStart(2, "0")}</span>` : ""}
+      <span class="cf-titulo">${esc(f.titulo)}</span>
+      <span class="cf-seta">›</span>
+    </button>`;
+}
+function ligarItensForm() {
+  app.querySelectorAll<HTMLButtonElement>(".cartao-form").forEach((b) => {
+    b.onclick = () => { const f = formularios.find((x) => x.slug === b.dataset.slug); if (f) telaFormulario(f); };
   });
+}
+
+function telaProduto(p: Produto) {
+  voltarPara = () => telaInicio();
+  const info = PRODUTOS[p];
+  const lista = formsDoProduto(p);
+  app.innerHTML = `
+    ${cabecalho("voltar")}
+    <main class="conteudo">
+      <header class="tela-cab tela-cab-${p}">
+        <p class="rotulo-tec">${info.codigo} / FORMULÁRIOS</p>
+        <h1>${esc(info.nome)}</h1>
+        <p class="sub">Escolha o formulário que vai responder.</p>
+      </header>
+      ${resumoFila()}
+      <section class="lista-forms">
+        ${lista.length ? lista.map((f, i) => htmlItemForm(f, i + 1)).join("") : `<p class="vazio">Nenhum formulário de ${esc(info.nome)} disponível.</p>`}
+      </section>
+    </main>`;
+  ligarCabecalho();
+  window.scrollTo(0, 0);
+  app.querySelectorAll<HTMLButtonElement>(".cartao-form").forEach((b) => {
+    const f = formularios.find((x) => x.slug === b.dataset.slug);
+    b.onclick = () => { if (f) telaFormulario(f, () => telaProduto(p)); };
+  });
+  const be = document.getElementById("btn-enviar"); if (be) be.onclick = () => enviarFila(true);
 }
 
 /* ------------------------------------------------------------------ */
@@ -351,12 +431,19 @@ function lerValor(form: HTMLFormElement, c: Campo): string | string[] {
   return el ? el.value.trim() : "";
 }
 
-function telaFormulario(f: Formulario) {
+function produtoDe(slug: string): Produto | null {
+  return (Object.keys(PRODUTOS) as Produto[]).find((p) => PRODUTOS[p].slugs.includes(slug)) || null;
+}
+function telaFormulario(f: Formulario, voltar?: () => void) {
+  const prod = produtoDe(f.slug);
+  const destino = voltar || (prod ? () => telaProduto(prod) : () => telaInicio());
+  voltarPara = destino;
   app.innerHTML = `
     ${cabecalho("voltar")}
     <main class="conteudo">
       <form class="formulario" id="f-resp" novalidate>
         <header class="form-cab">
+          ${prod ? `<p class="rotulo-tec">${PRODUTOS[prod].codigo} / ${esc(PRODUTOS[prod].nome)}</p>` : ""}
           <h1>${esc(f.titulo)}</h1>
           ${f.descricao ? `<p class="sub">${esc(f.descricao)}</p>` : ""}
           <p class="nota"><em class="obr">*</em> obrigatório</p>
@@ -408,12 +495,13 @@ function telaFormulario(f: Formulario) {
       preenchido_em: new Date().toISOString(), dados, tentativas: 0,
     };
     salvarFila([...fila(), item]);
-    telaEnviado(f);
+    telaEnviado(f, destino);
     enviarFila();
   };
 }
 
-function telaEnviado(f: Formulario) {
+function telaEnviado(f: Formulario, voltar: () => void) {
+  voltarPara = voltar;
   app.innerHTML = `
     ${cabecalho("voltar")}
     <main class="conteudo centro">
@@ -426,7 +514,7 @@ function telaEnviado(f: Formulario) {
       </div>
     </main>`;
   ligarCabecalho();
-  document.getElementById("btn-de-novo")!.onclick = () => telaFormulario(f);
+  document.getElementById("btn-de-novo")!.onclick = () => telaFormulario(f, voltar);
   document.getElementById("btn-inicio")!.onclick = () => telaInicio();
 }
 

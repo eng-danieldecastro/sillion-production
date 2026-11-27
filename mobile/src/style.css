@@ -9,7 +9,9 @@
   --texto-2: #6b6b6b;
   --borda: #e3e3e0;
   --ok: #2f7d4f;
-  --raio: 14px;
+  --raio: 6px;
+  --mono: ui-monospace, "Roboto Mono", "SFMono-Regular", Menlo, Consolas, "Droid Sans Mono", monospace;
+  --grade: #d9d9d5;
   --sombra: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.05);
   font-family: "Inter", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   color: var(--texto);
@@ -122,11 +124,6 @@ textarea { resize: vertical; }
 .aviso.visivel { opacity: 1; transform: none; }
 .aviso-erro { background: var(--vermelho); }
 
-/* Abas da tela inicial */
-.abas-inicio { display: flex; gap: 4px; padding: 4px; background: #ebebe8; border-radius: 12px; margin: 0 0 16px; }
-.abas-inicio button { flex: 1; border: 0; background: transparent; padding: 10px 8px; border-radius: 9px; font: inherit; font-size: .92rem; font-weight: 600; color: var(--texto-2); transition: background .15s, color .15s; }
-.abas-inicio button.ativo { background: #fff; color: var(--texto); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
-
 /* Subseções das opções (Hardware / Software / Outros) */
 .grupo-opcoes + .grupo-opcoes { margin-top: 14px; }
 .grupo-titulo { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: .72rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--texto-2); }
@@ -194,3 +191,81 @@ textarea { resize: vertical; }
 .pn-carregando span:nth-child(2) { animation-delay: .15s; } .pn-carregando span:nth-child(3) { animation-delay: .3s; }
 @keyframes pn-pulso { 0%, 100% { opacity: .3; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-3px); } }
 .t-dica[hidden] { display: none; }
+
+/* ------------------------------------------------------------------ */
+/* Estilo técnico: menu principal, produtos, configurações             */
+/* ------------------------------------------------------------------ */
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.rotulo-tec { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: .7rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--texto-2); margin: 0 0 10px; }
+h2.rotulo-tec::after { content: ""; flex: 1; height: 1px; background: var(--grade); }
+.rotulo-tec > span { color: var(--vermelho); letter-spacing: 0; }
+
+.topo-inicio { padding-left: 16px; padding-right: 8px; border-bottom: 2px solid var(--vermelho); }
+.topo-marca { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.topo-inicio .logo { height: 22px; flex: 0 0 auto; }
+.topo-nome { display: flex; flex-direction: column; min-width: 0; padding-left: 10px; border-left: 1px solid #4a4a4a; }
+.topo-nome strong { color: #fff; font-size: clamp(.82rem, 4.1vw, 1rem); font-weight: 650; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topo-nome span { color: #9c9c9c; font-family: var(--mono); font-size: .62rem; letter-spacing: .12em; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topo-btn { display: grid; place-items: center; }
+
+.faixa-status { display: flex; gap: 14px; justify-content: space-between; padding: 7px 16px; background: #1f1f1f; color: #bdbdbd; font-size: .68rem; letter-spacing: .06em; border-bottom: 1px solid #000; }
+.faixa-status span { display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.led { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.led.on { background: #3fbf6f; box-shadow: 0 0 6px rgba(63,191,111,.7); }
+.led.off { background: #8a8a8a; }
+
+.tela-inicio .saudacao { margin: 0 0 14px; }
+.secao-tec { margin-bottom: 24px; }
+
+.produtos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.produto { position: relative; display: flex; flex-direction: column; align-items: flex-start; text-align: left; font: inherit; color: var(--texto); background: var(--cartao); border: 1px solid var(--grade); border-radius: var(--raio); padding: 14px 14px 12px; min-height: 148px; cursor: pointer; overflow: hidden;
+  background-image: linear-gradient(var(--borda) 1px, transparent 1px), linear-gradient(90deg, var(--borda) 1px, transparent 1px); background-size: 16px 16px; background-position: -1px -1px; }
+.produto::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+.produto-std::before { background: #257de0; }
+.produto-streamax::before { background: #f47230; }
+.produto:active { transform: scale(.985); border-color: var(--carvao); }
+.pr-codigo { font-size: .66rem; color: var(--texto-2); background: var(--fundo); border: 1px solid var(--grade); border-radius: 3px; padding: 2px 6px; }
+.pr-nome { font-size: 1.45rem; font-weight: 700; letter-spacing: -.01em; margin: 12px 0 2px; text-transform: uppercase; background: var(--cartao); padding-right: 4px; }
+.pr-desc { font-size: .78rem; color: var(--texto-2); line-height: 1.3; background: var(--cartao); padding-right: 4px; }
+.pr-rodape { margin-top: auto; padding-top: 12px; width: 100%; display: flex; justify-content: space-between; align-items: center; font-size: .66rem; color: var(--texto-2); letter-spacing: .06em; }
+.pr-rodape span { background: var(--cartao); padding-right: 4px; }
+.pr-rodape b { color: var(--vermelho); font-size: 1.3rem; line-height: 1; font-weight: 400; background: var(--cartao); }
+.lista-extra { margin-top: 10px; }
+
+.tela-cab { margin: 0 0 16px; padding-bottom: 12px; border-bottom: 1px solid var(--grade); }
+.tela-cab h1 { font-size: 1.6rem; text-transform: uppercase; letter-spacing: .01em; }
+.tela-cab .rotulo-tec { margin-bottom: 6px; }
+.tela-cab .sub { margin: 0; }
+.tela-cab-std h1 { border-left: 3px solid #257de0; padding-left: 10px; }
+.tela-cab-streamax h1 { border-left: 3px solid #f47230; padding-left: 10px; }
+.cf-num { color: var(--texto-2); font-size: .78rem; margin-right: 12px; padding-right: 12px; border-right: 1px solid var(--borda); align-self: stretch; display: flex; align-items: center; }
+.cartao-form .cf-titulo { flex: 1; }
+.form-cab .rotulo-tec { margin-bottom: 6px; }
+
+.cfg-grupo { margin-bottom: 20px; }
+.cfg-lista { background: var(--cartao); border: 1px solid var(--grade); border-radius: var(--raio); overflow: hidden; }
+.cfg-linha { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0; padding: 13px 14px; border-top: 1px solid var(--borda); font-size: .92rem; width: 100%; background: none; font-family: inherit; color: var(--texto); text-align: left; }
+.cfg-linha:first-child { border-top: 0; }
+.cfg-linha > span { color: var(--texto-2); }
+.cfg-linha strong { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.cfg-acao { border-left: 0; border-right: 0; border-bottom: 0; cursor: pointer; }
+.cfg-acao > span { color: var(--texto); font-weight: 600; }
+.cfg-acao b { color: var(--vermelho); font-size: 1.4rem; font-weight: 400; line-height: 1; }
+.cfg-acao:active { background: #fafafa; }
+.btn-sair { color: var(--vermelho); border-color: #e7b9bb; margin-top: 6px; }
+
+/* Ajustes técnicos nos componentes existentes */
+.cartao, .formulario, .pn-cartao, .kpi { box-shadow: none; border-color: var(--grade); }
+.btn { border-radius: var(--raio); letter-spacing: .02em; }
+input, select, textarea, .btn-olho { border-radius: 4px; }
+.opcao span { border-radius: 4px; }
+.faixa-fila { border-radius: var(--raio); font-family: var(--mono); font-size: .78rem; }
+.kpi { border-radius: var(--raio); }
+.kpi-rotulo { font-family: var(--mono); font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; }
+.kpi-valor { font-family: var(--mono); font-weight: 600; letter-spacing: -.03em; }
+.pn-periodos button { border-radius: 4px; font-family: var(--mono); font-size: .74rem; letter-spacing: .04em; text-transform: uppercase; }
+.pn-atualizado, .pn-nota { font-family: var(--mono); font-size: .68rem; }
+.pn-bloco h2 { font-family: var(--mono); font-size: .68rem; font-weight: 600; }
+.pn-linha strong, .b-n, .legenda strong { font-family: var(--mono); }
+.t-eixo { font-family: var(--mono); }
+.menu { border-radius: 10px 10px 0 0; }
