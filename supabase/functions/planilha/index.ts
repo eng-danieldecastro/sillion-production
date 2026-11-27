@@ -4,6 +4,7 @@
 //  - confirmar: marca respostas como gravadas (ou registra o erro)
 //  - backup:    guarda as linhas da planilha sem duplicar (uma linha por hash)
 //  - pulso:     mantém o projeto ativo
+//  - externo:   guarda o resumo de câmeras e fornecedores usado no dashboard do app
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.119.2";
 
@@ -127,6 +128,18 @@ Deno.serve(async (req) => {
       aba, linhas_planilha: linhas.length, novas: novas.length, removidas, status: "OK",
     });
     return resposta({ ok: true, aba, linhas: linhas.length, novas: novas.length, removidas });
+  }
+
+  if (acao === "externo") {
+    // corpo: { chave: "cameras" | "fornecedores", dados: {...} }
+    const chave = String(corpo.chave || "");
+    if (!["cameras", "fornecedores"].includes(chave)) return resposta({ erro: "chave inválida" }, 400);
+    if (!corpo.dados || typeof corpo.dados !== "object") return resposta({ erro: "dados obrigatórios" }, 400);
+    if (JSON.stringify(corpo.dados).length > 200_000) return resposta({ erro: "dados grandes demais" }, 400);
+    const { error } = await servico.from("painel_externo")
+      .upsert({ chave, dados: corpo.dados, atualizado_em: new Date().toISOString() });
+    if (error) return resposta({ erro: error.message }, 500);
+    return resposta({ ok: true, chave });
   }
 
   return resposta({ erro: "Ação desconhecida" }, 400);
