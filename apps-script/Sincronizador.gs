@@ -618,6 +618,7 @@ function lerListaEquip_(sheet, tz, tipo) {
  *  - Um recebimento pode dar baixa em mais de um envio (não é "gasto" por um envio só). O envio sem MAC (só ID) também é lido.
  *  - Baixa = primeiro recebimento com data igual ou posterior ao envio. Se todos os recebimentos são anteriores ao envio, só há uma exceção:
  *    se o envio é o MAIS RECENTE daquele MAC/ID e tem data, o equipamento foi reenviado depois de voltar e está NO FORNECEDOR de novo.
+ *    Nos demais casos usa o recebimento mais recente. */
 
 // Envios x recebimentos (mesma regra do dashboard). Devolve os itens enviados com retornou = true/false.
 function itensFornecedores_() {
@@ -730,6 +731,10 @@ function itensFornecedores_() {
       reenviadosNoFornecedor: reenviados,
       baixasComDataAnterior: baixaDataAnterior, baixasPorBuscaAmpla: baixaBuscaAmpla,
       conferidosPorFormatoDiferente: itens.filter(function (i) { return i.formatoDiferente; }).length
+    }
+  };
+}
+
 function familiaCamera_(modelo) {
   const n = norm_(modelo);
   if (!n) return "(sem modelo)";
