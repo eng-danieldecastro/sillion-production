@@ -37,6 +37,8 @@ jobs:
         run: npm ci
 
       - name: Gerar app web e copiar para o Android
+        env:
+          VITE_VERSAO: 1.0.${{ github.run_number }}
         run: npm run android:sync
 
       - name: Restaurar chave de assinatura (segredos do repositório)

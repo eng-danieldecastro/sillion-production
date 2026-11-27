@@ -6,6 +6,7 @@ export interface Campo {
   tipo: TipoCampo;
   obrigatorio: boolean;
   opcoes?: string[];
+  grupos?: { titulo: string; opcoes: string[] }[];   // subseções (ex.: Hardware / Software / Outros)
 }
 
 export interface Formulario {

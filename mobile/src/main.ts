@@ -2,6 +2,7 @@ import "./style.css";
 import { createClient, type Session } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_CHAVE_PUBLICA, DOMINIO_LOGIN, VERSAO_APP } from "./config";
 import type { Campo, Formulario, Perfil, RespostaPendente } from "./tipos";
+import { telaPainel, limparCachePainel } from "./painel";
 
 /* ------------------------------------------------------------------ */
 /* Estado                                                              */
@@ -19,6 +20,7 @@ const CHAVE_PERFIL = "cps-perfil";
 let perfil: Perfil | null = lerJSON<Perfil>(CHAVE_PERFIL);
 let formularios: Formulario[] = lerJSON<Formulario[]>(CHAVE_FORMS) || [];
 let enviando = false;
+let abaInicio: "forms" | "painel" = "forms";
 
 const app = document.getElementById("app")!;
 
@@ -151,6 +153,8 @@ async function sair(forcado = false, mensagem = "") {
   }
   try { await sb.auth.signOut({ scope: "local" }); } catch { /* ignora */ }
   localStorage.removeItem(CHAVE_PERFIL);
+  limparCachePainel();
+  abaInicio = "forms";
   // Saída voluntária (já confirmada) limpa a fila. Saída forçada (sessão expirada)
   // mantém as respostas no aparelho para enviar quando o mesmo usuário entrar de novo.
   if (!forcado) salvarFila([]);
@@ -242,6 +246,29 @@ function resumoFila() {
 
 function telaInicio() {
   const lista = [...formularios].sort((a, b) => a.ordem - b.ordem);
+  const abas = `
+      <nav class="abas-inicio" role="tablist">
+        <button role="tab" data-aba="forms" class="${abaInicio === "forms" ? "ativo" : ""}">Formulários</button>
+        <button role="tab" data-aba="painel" class="${abaInicio === "painel" ? "ativo" : ""}">Painel</button>
+      </nav>`;
+  if (abaInicio === "painel") {
+    app.innerHTML = `
+    ${cabecalho("menu")}
+    <main class="conteudo">
+      <section class="saudacao">
+        <p class="sub">Olá, ${esc(primeiroNome(perfil?.nome || ""))}</p>
+        <h1>Painel da produção</h1>
+      </section>
+      ${abas}
+      ${resumoFila()}
+      <div id="painel"></div>
+    </main>`;
+    ligarCabecalho();
+    ligarAbas();
+    telaPainel(document.getElementById("painel")!, sb);
+    const be = document.getElementById("btn-enviar"); if (be) be.onclick = () => enviarFila(true);
+    return;
+  }
   app.innerHTML = `
     ${cabecalho("menu")}
     <main class="conteudo">
@@ -249,6 +276,7 @@ function telaInicio() {
         <p class="sub">Olá, ${esc(primeiroNome(perfil?.nome || ""))}</p>
         <h1>Qual formulário você vai responder?</h1>
       </section>
+      ${abas}
       ${resumoFila()}
       <section class="lista-forms">
         ${lista.length ? lista.map((f) => `
@@ -259,10 +287,21 @@ function telaInicio() {
       </section>
     </main>`;
   ligarCabecalho();
+  ligarAbas();
   app.querySelectorAll<HTMLButtonElement>(".cartao-form").forEach((b) => {
     b.onclick = () => { const f = formularios.find((x) => x.slug === b.dataset.slug); if (f) telaFormulario(f); };
   });
   const be = document.getElementById("btn-enviar"); if (be) be.onclick = () => enviarFila(true);
+}
+
+function ligarAbas() {
+  app.querySelectorAll<HTMLButtonElement>(".abas-inicio button").forEach((b) => {
+    b.onclick = () => {
+      const nova = b.dataset.aba as "forms" | "painel";
+      if (nova === abaInicio) return;
+      abaInicio = nova; telaInicio(); window.scrollTo(0, 0);
+    };
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -285,12 +324,18 @@ function htmlCampo(c: Campo, i: number) {
       return `<fieldset class="campo" data-chave="${esc(c.chave)}"><legend>${titulo}</legend><div class="opcoes">
         ${op.map((o) => `<label class="opcao"><input type="radio" name="${esc(c.chave)}" value="${esc(o)}" /><span>${esc(o)}</span></label>`).join("")}
         </div></fieldset>`;
-    case "caixas":
+    case "caixas": {
+      const caixa = (o: string) => `<label class="opcao"><input type="checkbox" name="${esc(c.chave)}" value="${esc(o)}" /><span>${esc(o)}</span></label>`;
+      // Com grupos (Hardware / Software / Outros): uma subseção por grupo. Os valores gravados não mudam.
+      const corpo = c.grupos && c.grupos.length
+        ? c.grupos.map((g) => `<div class="grupo-opcoes" data-grupo="${esc(g.titulo)}">
+            <p class="grupo-titulo">${esc(g.titulo)}<span>${g.opcoes.length}</span></p>
+            <div class="opcoes">${g.opcoes.map(caixa).join("")}</div></div>`).join("")
+        : `<div class="opcoes">${op.map(caixa).join("")}</div>`;
       return `<fieldset class="campo" data-chave="${esc(c.chave)}"><legend>${titulo}<small>Pode marcar mais de uma</small></legend>
         ${op.length > 8 ? `<input class="filtro" type="search" placeholder="Filtrar opções" data-filtro="${esc(c.chave)}" />` : ""}
-        <div class="opcoes">
-        ${op.map((o) => `<label class="opcao"><input type="checkbox" name="${esc(c.chave)}" value="${esc(o)}" /><span>${esc(o)}</span></label>`).join("")}
-        </div></fieldset>`;
+        ${corpo}</fieldset>`;
+    }
   }
 }
 
@@ -327,8 +372,12 @@ function telaFormulario(f: Formulario) {
   form.querySelectorAll<HTMLInputElement>("input[data-filtro]").forEach((inp) => {
     inp.oninput = () => {
       const t = inp.value.trim().toLowerCase();
-      inp.parentElement!.querySelectorAll<HTMLLabelElement>(".opcao").forEach((l) => {
+      const bloco = inp.parentElement!;
+      bloco.querySelectorAll<HTMLLabelElement>(".opcao").forEach((l) => {
         l.style.display = !t || l.textContent!.toLowerCase().includes(t) || (l.querySelector("input") as HTMLInputElement).checked ? "" : "none";
+      });
+      bloco.querySelectorAll<HTMLElement>(".grupo-opcoes").forEach((g) => {
+        g.style.display = Array.from(g.querySelectorAll<HTMLElement>(".opcao")).some((l) => l.style.display !== "none") ? "" : "none";
       });
     };
   });

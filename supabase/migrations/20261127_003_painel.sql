@@ -112,7 +112,7 @@ begin
     select coalesce(jsonb_agg(jsonb_build_object(
       'dia', dia,
       'std', (select count(*) from std2 where d = dia),
-      'stx', (select count(*) from stx2 where d = dia) + (select count(*) from ins where d = dia),
+      'stx', (select count(*) from ins where d = dia),
       'prob', (select count(*) from std2 where d = dia and prob) + (select count(*) from stx2 where d = dia and prob)
     ) order by dia), '[]'::jsonb) j from dias
   )
