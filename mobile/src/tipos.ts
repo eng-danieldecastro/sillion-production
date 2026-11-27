@@ -7,6 +7,10 @@ export interface Campo {
   obrigatorio: boolean;
   opcoes?: string[];
   grupos?: { titulo: string; opcoes: string[] }[];   // subseções (ex.: Hardware / Software / Outros)
+  // Causa de cada opção marcada: pergunta "É possível identificar a causa?" e, no Sim, os submotivos.
+  // O resultado vai para dados[causa_chave] como "FALHA: submotivo" (ou "FALHA: causa não identificada").
+  causas?: Record<string, string[]>;
+  causa_chave?: string;
 }
 
 export interface Formulario {

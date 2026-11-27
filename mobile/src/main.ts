@@ -25,8 +25,8 @@ let enviando = false;
 // Produto escolhido no menu principal. Cada formulário pertence a um produto.
 type Produto = "std" | "streamax";
 const PRODUTOS: Record<Produto, { nome: string; codigo: string; descricao: string; slugs: string[] }> = {
-  std: { nome: "STD", codigo: "PRD-01", descricao: "Placas, manutenção e RST_Mini", slugs: ["placas_danificadas", "manutencao_placas", "rst_mini"] },
-  streamax: { nome: "Streamax", codigo: "PRD-02", descricao: "Equipamentos e entrada", slugs: ["streamax_geral", "insumos"] },
+  std: { nome: "STD", codigo: "PRD-01", descricao: "Triagem, manutenção e RST_MINI", slugs: ["placas_danificadas", "manutencao_placas", "rst_mini"] },
+  streamax: { nome: "Streamax", codigo: "PRD-02", descricao: "Triagem, manutenção e movimentação", slugs: ["streamax_geral", "insumos"] },
 };
 // Para onde o botão ‹ do topo (e o botão voltar do celular) leva na tela atual.
 // null = tela raiz (login ou menu principal): o voltar do celular minimiza o app.
@@ -418,7 +418,7 @@ function htmlCampo(c: Campo, i: number) {
         : `<div class="opcoes">${op.map(caixa).join("")}</div>`;
       return `<fieldset class="campo" data-chave="${esc(c.chave)}"><legend>${titulo}<small>Pode marcar mais de uma</small></legend>
         ${op.length > 8 ? `<input class="filtro" type="search" placeholder="Filtrar opções" data-filtro="${esc(c.chave)}" />` : ""}
-        ${corpo}</fieldset>`;
+        ${corpo}</fieldset>${c.causas ? `<div class="causas" data-causas-de="${esc(c.chave)}"></div>` : ""}`;
     }
   }
 }
@@ -433,6 +433,67 @@ function lerValor(form: HTMLFormElement, c: Campo): string | string[] {
   }
   const el = form.querySelector<HTMLInputElement>(`[name="${CSS.escape(c.chave)}"]`);
   return el ? el.value.trim() : "";
+}
+
+/* Causa das falhas ------------------------------------------------- */
+const SEM_CAUSA = "causa não identificada";
+type EstadoCausa = { sim: boolean | null; sel: Set<string> };
+
+function htmlCausas(c: Campo, marcadas: string[], estado: Map<string, EstadoCausa>) {
+  const comCausa = marcadas.filter((m) => (c.causas?.[m] || []).length);
+  if (!comCausa.length) return "";
+  return `<p class="causas-titulo">Causa da falha</p>` + comCausa.map((falha) => {
+    const e = estado.get(falha) || { sim: null, sel: new Set<string>() };
+    const id = `causa-${(c.opcoes || []).indexOf(falha)}`;
+    const subs = c.causas![falha];
+    return `<div class="causa-cartao" data-falha="${esc(falha)}">
+      <p class="causa-falha">${esc(falha)}</p>
+      <p class="causa-pergunta">É possível identificar a causa? <em class="obr">*</em></p>
+      <div class="opcoes opcoes-2">
+        <label class="opcao"><input type="radio" name="${id}" value="sim" data-resp ${e.sim === true ? "checked" : ""} /><span>Sim</span></label>
+        <label class="opcao"><input type="radio" name="${id}" value="nao" data-resp ${e.sim === false ? "checked" : ""} /><span>Não</span></label>
+      </div>
+      ${e.sim === true ? `<p class="causa-pergunta">Qual a causa? <small>Pode marcar mais de uma</small></p>
+      <div class="opcoes">${subs.map((s) => `<label class="opcao"><input type="checkbox" value="${esc(s)}" data-sub ${e.sel.has(s) ? "checked" : ""} /><span>${esc(s)}</span></label>`).join("")}</div>` : ""}
+      ${e.sim === false ? `<p class="causa-nota">Registrado como ${SEM_CAUSA}.</p>` : ""}
+    </div>`;
+  }).join("");
+}
+
+function ligarCausas(form: HTMLFormElement, c: Campo, estado: Map<string, EstadoCausa>) {
+  const caixa = form.querySelector<HTMLElement>(`.causas[data-causas-de="${CSS.escape(c.chave)}"]`);
+  if (!caixa) return;
+  const desenhar = () => { caixa.innerHTML = htmlCausas(c, lerValor(form, c) as string[], estado); };
+  form.querySelectorAll<HTMLInputElement>(`input[type=checkbox][name="${CSS.escape(c.chave)}"]`).forEach((i) => {
+    i.addEventListener("change", desenhar);
+  });
+  caixa.addEventListener("change", (ev) => {
+    const inp = ev.target as HTMLInputElement;
+    const cartao = inp.closest<HTMLElement>(".causa-cartao"); if (!cartao) return;
+    const falha = cartao.dataset.falha!;
+    const e = estado.get(falha) || { sim: null, sel: new Set<string>() };
+    if (inp.hasAttribute("data-resp")) { e.sim = inp.value === "sim"; estado.set(falha, e); desenhar(); }
+    if (inp.hasAttribute("data-sub")) { if (inp.checked) e.sel.add(inp.value); else e.sel.delete(inp.value); estado.set(falha, e); }
+    caixa.querySelector(`.causa-cartao[data-falha="${CSS.escape(falha)}"]`)?.classList.remove("invalido");
+  });
+  desenhar();
+}
+
+// Lê as causas: devolve os valores "FALHA: submotivo" e o primeiro cartão incompleto (se houver).
+function lerCausas(form: HTMLFormElement, c: Campo, estado: Map<string, EstadoCausa>) {
+  const valores: string[] = [];
+  let incompleto: HTMLElement | null = null;
+  for (const falha of lerValor(form, c) as string[]) {
+    if (!(c.causas?.[falha] || []).length) continue;
+    const e = estado.get(falha);
+    const cartao = form.querySelector<HTMLElement>(`.causa-cartao[data-falha="${CSS.escape(falha)}"]`);
+    const ok = !!e && (e.sim === false || (e.sim === true && e.sel.size > 0));
+    cartao?.classList.toggle("invalido", !ok);
+    if (!ok) { if (!incompleto) incompleto = cartao; continue; }
+    if (e!.sim === false) valores.push(`${falha}: ${SEM_CAUSA}`);
+    else for (const s of c.causas![falha]) if (e!.sel.has(s)) valores.push(`${falha}: ${s}`);
+  }
+  return { valores, incompleto };
 }
 
 function produtoDe(slug: string): Produto | null {
@@ -478,6 +539,8 @@ function telaFormulario(f: Formulario, voltar?: () => void) {
     };
   });
   form.addEventListener("input", () => { alterado = true; });
+  const estadoCausas = new Map<string, Map<string, EstadoCausa>>();
+  for (const c of f.campos) if (c.causas) { const m = new Map<string, EstadoCausa>(); estadoCausas.set(c.chave, m); ligarCausas(form, c, m); }
   form.addEventListener("change", (ev) => {
     alterado = true;
     const bloco = (ev.target as HTMLElement).closest(".campo"); if (bloco) bloco.classList.remove("invalido");
@@ -494,6 +557,11 @@ function telaFormulario(f: Formulario, voltar?: () => void) {
       bloco.classList.toggle("invalido", c.obrigatorio && vazio);
       if (c.obrigatorio && vazio && !primeiroErro) primeiroErro = bloco;
       if (!vazio) dados[c.chave] = v;
+      if (c.causas && c.causa_chave) {
+        const r = lerCausas(form, c, estadoCausas.get(c.chave)!);
+        if (r.incompleto && !primeiroErro) primeiroErro = r.incompleto;
+        if (r.valores.length) dados[c.causa_chave] = r.valores;
+      }
     }
     if (primeiroErro) {
       primeiroErro.scrollIntoView({ behavior: "smooth", block: "center" });
