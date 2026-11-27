@@ -6,7 +6,10 @@ import { sb, adminUsuarios } from "@/lib/supabase";
 /* ------------------------------------------------------------------ */
 /* Tipos                                                               */
 /* ------------------------------------------------------------------ */
-type Campo = { chave: string; rotulo: string; tipo: string; obrigatorio: boolean; opcoes?: string[] };
+type Campo = {
+  chave: string; rotulo: string; tipo: string; obrigatorio: boolean; opcoes?: string[];
+  grupos?: { titulo: string; opcoes: string[] }[]; causas?: Record<string, string[]>; causa_chave?: string;
+};
 type Formulario = { slug: string; titulo: string; aba_planilha: string; campos: Campo[]; ordem: number; ativo: boolean };
 type Usuario = {
   id: string; nome: string; usuario: string; email_sillion: string | null; papel: "admin" | "operador";
@@ -275,48 +278,200 @@ function Respostas({ formularios }: { formularios: Formulario[] }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Formulários (opções editáveis)                                      */
+/* Formulários: falhas (opções), grupos e submotivos editáveis          */
 /* ------------------------------------------------------------------ */
+type Item = { nome: string; subs: string[]; aberto?: boolean };
+type GrupoEd = { titulo: string; itens: Item[] };
+type CampoEd = { campo: Campo; comGrupos: boolean; grupos: GrupoEd[]; perguntaCausa: boolean };
+
+function paraEdicao(c: Campo): CampoEd {
+  const causas = c.causas || {};
+  const item = (nome: string): Item => ({ nome, subs: [...(causas[nome] || [])] });
+  if (c.grupos && c.grupos.length) {
+    return { campo: c, comGrupos: true, perguntaCausa: !!c.causas, grupos: c.grupos.map((g) => ({ titulo: g.titulo, itens: g.opcoes.map(item) })) };
+  }
+  return { campo: c, comGrupos: false, perguntaCausa: !!c.causas, grupos: [{ titulo: "", itens: (c.opcoes || []).map(item) }] };
+}
+
+// Monta o campo salvo. Devolve também os problemas encontrados (nomes repetidos etc.).
+function deEdicao(e: CampoEd): { campo: Campo; problemas: string[] } {
+  const problemas: string[] = [];
+  const vistos = new Set<string>();
+  const grupos = e.grupos.map((g) => ({
+    titulo: g.titulo.trim(),
+    itens: g.itens.map((i) => ({ nome: i.nome.trim(), subs: i.subs.map((x) => x.trim()).filter(Boolean) })).filter((i) => i.nome),
+  })).filter((g) => g.itens.length);
+  for (const g of grupos) {
+    if (e.comGrupos && !g.titulo) problemas.push(`${e.campo.rotulo}: há um grupo sem nome.`);
+    for (const i of g.itens) {
+      const k = i.nome.toUpperCase();
+      if (vistos.has(k)) problemas.push(`${e.campo.rotulo}: "${i.nome}" aparece mais de uma vez.`);
+      vistos.add(k);
+      const subsK = new Set<string>();
+      for (const s of i.subs) { if (subsK.has(s.toUpperCase())) problemas.push(`${i.nome}: submotivo "${s}" repetido.`); subsK.add(s.toUpperCase()); }
+    }
+  }
+  const campo: Campo = { ...e.campo };
+  campo.opcoes = grupos.flatMap((g) => g.itens.map((i) => i.nome));
+  if (e.comGrupos) campo.grupos = grupos.map((g) => ({ titulo: g.titulo, opcoes: g.itens.map((i) => i.nome) }));
+  else delete campo.grupos;
+  if (e.campo.causa_chave && e.perguntaCausa) {
+    const causas: Record<string, string[]> = {};
+    for (const g of grupos) for (const i of g.itens) if (i.subs.length) causas[i.nome] = i.subs;
+    campo.causas = causas;
+  } else delete campo.causas;
+  return { campo, problemas };
+}
+
+const TIPO_ROTULO: Record<string, string> = { texto: "Texto curto", paragrafo: "Texto longo", radio: "Escolha única", lista: "Lista", caixas: "Várias opções" };
+
 function Formularios({ formularios, onSalvo }: { formularios: Formulario[]; onSalvo: (f: Formulario[]) => void }) {
   const [sel, setSel] = useState(formularios[0]?.slug || "");
   const atual = formularios.find((f) => f.slug === sel);
-  const [campos, setCampos] = useState<Campo[]>(atual?.campos || []);
-  const [msg, setMsg] = useState("");
-  useEffect(() => { setCampos(formularios.find((f) => f.slug === sel)?.campos || []); setMsg(""); }, [sel, formularios]);
+  const [titulo, setTitulo] = useState(atual?.titulo || "");
+  const [eds, setEds] = useState<CampoEd[]>([]);
+  const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
+  const [alterado, setAlterado] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    const f = formularios.find((x) => x.slug === sel);
+    setTitulo(f?.titulo || ""); setEds((f?.campos || []).map(paraEdicao)); setMsg(null); setAlterado(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel]);
+
+  function trocarForm(slug: string) {
+    if (alterado && !confirm("Há mudanças não salvas neste formulário. Descartar?")) return;
+    setSel(slug);
+  }
+  // Atualiza um campo em edição (cópia imutável simples).
+  function mudar(ci: number, fn: (e: CampoEd) => void, marca = true) {
+    setEds((lista) => lista.map((e, i) => { if (i !== ci) return e; const c: CampoEd = JSON.parse(JSON.stringify(e)); fn(c); return c; }));
+    if (marca) { setAlterado(true); setMsg(null); }
+  }
 
   async function salvar() {
-    const limpos = campos.map((c) => c.opcoes ? { ...c, opcoes: c.opcoes.map((o) => o.trim()).filter(Boolean) } : c);
-    setCampos(limpos);
-    const { error } = await sb.from("formularios").update({ campos: limpos, atualizado_em: new Date().toISOString() }).eq("slug", sel);
-    if (error) { setMsg("Erro: " + error.message); return; }
-    onSalvo(formularios.map((f) => f.slug === sel ? { ...f, campos: limpos } : f));
-    setMsg("Salvo. Os celulares recebem a mudança na próxima vez que o app abrir com internet.");
+    const prontos = eds.map(deEdicao);
+    const problemas = prontos.flatMap((p) => p.problemas);
+    if (!titulo.trim()) problemas.unshift("O formulário precisa de um nome.");
+    if (problemas.length) { setMsg({ tipo: "erro", texto: problemas.join(" ") }); return; }
+    for (const p of prontos) if ((p.campo.opcoes || []).length === 0 && ["radio", "lista", "caixas"].includes(p.campo.tipo)) {
+      setMsg({ tipo: "erro", texto: `${p.campo.rotulo}: precisa ter pelo menos uma opção.` }); return;
+    }
+    const campos = prontos.map((p) => p.campo);
+    setSalvando(true);
+    const { error } = await sb.from("formularios").update({ titulo: titulo.trim(), campos, atualizado_em: new Date().toISOString() }).eq("slug", sel);
+    setSalvando(false);
+    if (error) { setMsg({ tipo: "erro", texto: "Erro ao salvar: " + error.message }); return; }
+    onSalvo(formularios.map((f) => f.slug === sel ? { ...f, titulo: titulo.trim(), campos } : f));
+    setAlterado(false);
+    setMsg({ tipo: "ok", texto: "Salvo. Os celulares recebem a mudança na próxima vez que o app abrir com internet." });
   }
 
   return (
     <section>
       <div className="secao-cab">
-        <div><h1>Formulários</h1><p className="sub">Edite as opções das listas. Os campos e a ordem das colunas da planilha não mudam aqui, para não quebrar o dashboard.</p></div>
+        <div><h1>Formulários</h1>
+          <p className="sub">Mude o nome do formulário, as opções de cada pergunta, os grupos (Hardware, Software, Outros) e os submotivos de cada falha. Vale só para o app; os Google Forms não mudam. Renomear uma opção não altera as respostas antigas da planilha.</p></div>
       </div>
-      <div className="filtros"><label>Formulário<select value={sel} onChange={(e) => setSel(e.target.value)}>{formularios.map((f) => <option key={f.slug} value={f.slug}>{f.titulo}</option>)}</select></label>
-        <span className="fraco">Aba na planilha: <code>{atual?.aba_planilha}</code></span></div>
-      <div className="grade-campos">
-        {campos.map((c, i) => (
-          <div key={c.chave} className="cartao campo-def">
-            <div className="campo-def-cab"><strong>{c.rotulo}</strong>{c.obrigatorio && <span className="selo aviso">Obrigatório</span>}<span className="fraco">{({ texto: "Texto curto", paragrafo: "Texto longo", radio: "Escolha única", lista: "Lista", caixas: "Várias opções" } as any)[c.tipo]}</span></div>
-            {c.opcoes && (
-              <>
-                <textarea rows={Math.min(10, c.opcoes.length + 1)} value={c.opcoes.join("\n")}
-                  onChange={(e) => setCampos(campos.map((x, j) => j === i ? { ...x, opcoes: e.target.value.split("\n") } : x))} />
-                <small>Uma opção por linha.</small>
-              </>
-            )}
-          </div>
-        ))}
+      <div className="filtros">
+        <label>Formulário<select value={sel} onChange={(e) => trocarForm(e.target.value)}>{formularios.map((f) => <option key={f.slug} value={f.slug}>{f.titulo}</option>)}</select></label>
+        <label className="largo">Nome no app<input value={titulo} onChange={(e) => { setTitulo(e.target.value); setAlterado(true); setMsg(null); }} /></label>
+        <span className="fraco">Aba na planilha: <code>{atual?.aba_planilha}</code></span>
       </div>
-      <div className="rodape-acoes">
-        <span className="sub">{msg}</span>
-        <button className="btn btn-primario curto" onClick={salvar}>Salvar opções</button>
+
+      <div className="ed-campos">
+        {eds.map((e, ci) => {
+          const temOpcoes = ["radio", "lista", "caixas"].includes(e.campo.tipo);
+          const total = e.grupos.reduce((n, g) => n + g.itens.length, 0);
+          return (
+            <div key={e.campo.chave} className="cartao ed-campo">
+              <div className="campo-def-cab">
+                <strong>{e.campo.rotulo}</strong>
+                {e.campo.obrigatorio && <span className="selo aviso">Obrigatório</span>}
+                <span className="fraco">{TIPO_ROTULO[e.campo.tipo] || e.campo.tipo}{temOpcoes ? ` · ${total} opções` : ""}</span>
+              </div>
+              {!temOpcoes && <p className="fraco">Campo de texto livre, sem opções para editar.</p>}
+              {temOpcoes && (
+                <>
+                  <div className="ed-opcoes-cab">
+                    <label className="ed-chave"><input type="checkbox" checked={e.comGrupos} onChange={(ev) => mudar(ci, (c) => {
+                      c.comGrupos = ev.target.checked;
+                      if (c.comGrupos) { if (!c.grupos[0].titulo) c.grupos[0].titulo = "Geral"; }
+                      else c.grupos = [{ titulo: "", itens: c.grupos.flatMap((g) => g.itens) }];
+                    })} /> Separar em grupos</label>
+                    {e.campo.causa_chave && (
+                      <label className="ed-chave"><input type="checkbox" checked={e.perguntaCausa} onChange={(ev) => mudar(ci, (c) => { c.perguntaCausa = ev.target.checked; })} /> Perguntar a causa (submotivos)</label>
+                    )}
+                  </div>
+                  {e.campo.causa_chave && e.perguntaCausa && (
+                    <p className="fraco ed-dica">Ao marcar uma opção que tenha submotivos, o app pergunta &quot;É possível identificar a causa?&quot;. A resposta vai para a coluna CAUSA IDENTIFICADA. Opção sem submotivo não mostra a pergunta.</p>
+                  )}
+                  {e.grupos.map((g, gi) => (
+                    <div key={gi} className="ed-grupo">
+                      {e.comGrupos && (
+                        <div className="ed-grupo-cab">
+                          <input className="ed-grupo-nome" value={g.titulo} placeholder="Nome do grupo" onChange={(ev) => mudar(ci, (c) => { c.grupos[gi].titulo = ev.target.value; })} />
+                          <button className="btn-link" disabled={gi === 0} onClick={() => mudar(ci, (c) => { const [x] = c.grupos.splice(gi, 1); c.grupos.splice(gi - 1, 0, x); })} title="Subir grupo">↑</button>
+                          <button className="btn-link" disabled={gi === e.grupos.length - 1} onClick={() => mudar(ci, (c) => { const [x] = c.grupos.splice(gi, 1); c.grupos.splice(gi + 1, 0, x); })} title="Descer grupo">↓</button>
+                          <button className="btn-link perigo" onClick={() => {
+                            if (g.itens.length && !confirm(`Remover o grupo "${g.titulo}" e as ${g.itens.length} opções dele?`)) return;
+                            mudar(ci, (c) => { c.grupos.splice(gi, 1); if (!c.grupos.length) c.grupos.push({ titulo: "Geral", itens: [] }); });
+                          }}>Remover grupo</button>
+                        </div>
+                      )}
+                      <ul className="ed-itens">
+                        {g.itens.map((it, ii) => (
+                          <li key={ii} className="ed-item">
+                            <div className="ed-item-linha">
+                              <input value={it.nome} placeholder="Nome da opção" onChange={(ev) => mudar(ci, (c) => { c.grupos[gi].itens[ii].nome = ev.target.value; })} />
+                              {e.campo.causa_chave && e.perguntaCausa && (
+                                <button className={`ed-subs-btn ${it.subs.length ? "tem" : ""}`} onClick={() => mudar(ci, (c) => { c.grupos[gi].itens[ii].aberto = !it.aberto; }, false)}>
+                                  {it.subs.length ? `${it.subs.length} submotivo${it.subs.length > 1 ? "s" : ""}` : "Sem submotivo"} {it.aberto ? "▴" : "▾"}
+                                </button>
+                              )}
+                              {e.comGrupos && e.grupos.length > 1 && (
+                                <select className="ed-mover" value={gi} title="Mover para outro grupo" onChange={(ev) => mudar(ci, (c) => {
+                                  const [x] = c.grupos[gi].itens.splice(ii, 1); c.grupos[Number(ev.target.value)].itens.push(x);
+                                })}>{e.grupos.map((gg, k) => <option key={k} value={k}>{gg.titulo || "(sem nome)"}</option>)}</select>
+                              )}
+                              <button className="btn-link" disabled={ii === 0} onClick={() => mudar(ci, (c) => { const l = c.grupos[gi].itens; [l[ii - 1], l[ii]] = [l[ii], l[ii - 1]]; })} title="Subir">↑</button>
+                              <button className="btn-link" disabled={ii === g.itens.length - 1} onClick={() => mudar(ci, (c) => { const l = c.grupos[gi].itens; [l[ii + 1], l[ii]] = [l[ii], l[ii + 1]]; })} title="Descer">↓</button>
+                              <button className="btn-link perigo" title="Remover" onClick={() => {
+                                if (it.nome && !confirm(`Remover "${it.nome}"${it.subs.length ? " e os submotivos dela" : ""}?`)) return;
+                                mudar(ci, (c) => { c.grupos[gi].itens.splice(ii, 1); });
+                              }}>✕</button>
+                            </div>
+                            {e.campo.causa_chave && e.perguntaCausa && it.aberto && (
+                              <div className="ed-subs">
+                                {it.subs.map((s, si) => (
+                                  <div key={si} className="ed-sub">
+                                    <input value={s} placeholder="Submotivo" onChange={(ev) => mudar(ci, (c) => { c.grupos[gi].itens[ii].subs[si] = ev.target.value; })} />
+                                    <button className="btn-link" disabled={si === 0} onClick={() => mudar(ci, (c) => { const l = c.grupos[gi].itens[ii].subs; [l[si - 1], l[si]] = [l[si], l[si - 1]]; })}>↑</button>
+                                    <button className="btn-link perigo" onClick={() => mudar(ci, (c) => { c.grupos[gi].itens[ii].subs.splice(si, 1); })}>✕</button>
+                                  </div>
+                                ))}
+                                <button className="btn-link" onClick={() => mudar(ci, (c) => { c.grupos[gi].itens[ii].subs.push(""); })}>+ Adicionar submotivo</button>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      <button className="btn-link" onClick={() => mudar(ci, (c) => { c.grupos[gi].itens.push({ nome: "", subs: [], aberto: false }); })}>+ Adicionar opção{e.comGrupos && g.titulo ? ` em ${g.titulo}` : ""}</button>
+                    </div>
+                  ))}
+                  {e.comGrupos && <button className="btn btn-secundario curto ed-novo-grupo" onClick={() => mudar(ci, (c) => { c.grupos.push({ titulo: "", itens: [{ nome: "", subs: [] }] }); })}>+ Novo grupo</button>}
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="rodape-acoes fixo">
+        {msg && <span className={msg.tipo === "erro" ? "erro" : "txt-ok"}>{msg.texto}</span>}
+        {!msg && alterado && <span className="fraco">Mudanças ainda não salvas.</span>}
+        <button className="btn btn-secundario curto" disabled={!alterado || salvando} onClick={() => { setEds((atual?.campos || []).map(paraEdicao)); setTitulo(atual?.titulo || ""); setAlterado(false); setMsg(null); }}>Desfazer</button>
+        <button className="btn btn-primario curto" onClick={salvar} disabled={!alterado || salvando}>{salvando ? "Salvando…" : "Salvar formulário"}</button>
       </div>
     </section>
   );
