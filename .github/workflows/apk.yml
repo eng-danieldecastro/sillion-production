@@ -28,6 +28,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
+          cache: gradle
 
       - uses: android-actions/setup-android@v3
         with:
@@ -65,6 +66,17 @@ jobs:
             echo "keyAlias=centralproducao"
             echo "keyPassword=$KEYSTORE_SENHA"
           } > keystore.properties
+
+      - name: Usar espelho do Maven Central (evita erro 429 nos servidores do GitHub)
+        run: |
+          mkdir -p ~/.gradle/init.d
+          cat > ~/.gradle/init.d/espelho.gradle <<'FIM'
+          def espelho = 'https://maven-central.storage-download.googleapis.com/maven2/'
+          allprojects {
+            buildscript { repositories { maven { url espelho } } }
+            repositories { maven { url espelho } }
+          }
+          FIM
 
       - name: Compilar APK assinado
         working-directory: mobile/android
